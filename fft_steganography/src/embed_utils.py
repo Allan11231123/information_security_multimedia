@@ -32,8 +32,8 @@ def embed_message(
     # Compute 2D FFT
     F = np.fft.fft2(arr)
     F_shifted = np.fft.fftshift(F) # shift zero frequency to center
-    A = np.abs(F_shifted)
-    P = np.angle(F_shifted)
+    A = np.abs(F_shifted) # Magnitude spectrum
+    P = np.angle(F_shifted) # Phase spectrum
 
     # Encrypt message and get bit array
     ct = encrypt_message(message, key)
