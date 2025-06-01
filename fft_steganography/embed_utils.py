@@ -35,12 +35,13 @@ def embed_message(
     # Encrypt message and get bit array
     ct = encrypt_message(message, key)
     bits = np.unpackbits(np.frombuffer(ct, dtype=np.uint8))
-    print(bits)
+    print(f"length for bit array: {len(bits)}, bits: \n{bits}")
     # Get bit length for returning
     bit_length = len(bits)
 
     # Select mid-frequency coords
     coords = get_mid_freq_coords(arr.shape,low_frac=low_frac, high_frac=high_frac)
+    print(f"coords:\n{coords[:bit_length]}")
     # print(f"low_frac: {low_frac}, high_frac: {high_frac}")
     if len(bits) > len(coords):
         raise ValueError(f"Message too long for available frequency coefficients, difference {len(bits) - len(coords)}, try increase the `high_frac` parameter or reduce the message size")
@@ -94,6 +95,7 @@ def extract_message(
 
     # Select same mid-frequency coords
     coords = get_mid_freq_coords(arr.shape, low_frac=low_frac, high_frac=high_frac)
+    print(f"coords:\n{coords[:bit_len]}")
     original_high = high_frac
     # print(f"Number of mid-frequency coefficients available: {len(coords)}")
     while len(coords) < bit_len:
@@ -112,12 +114,12 @@ def extract_message(
         i, j = coords[idx]
         a = A[i, j]
         q = np.round((a + delta/2) / delta) * delta
-        bits.append(1 if (a - q) >= 0 else 0)
-
+        bits.append(1 if (q - a) >= 1 else 0)
+    print(f"length for recovered bits: {len(bits)}, bits: \n{bits}")
     # Reconstruct ciphertext and decrypt
     byte_arr = np.packbits(bits[:bit_len])
-    print(byte_arr)
     ct = byte_arr.tobytes()
+    # return ct.decode('utf-8')
     message = decrypt_message(ct, key)
     return message
 
@@ -194,6 +196,7 @@ def extract_phase_coeff(
     F = np.fft.fft2(arr)
     F = np.fft.fftshift(F)  # shift zero frequency to center
     coords = get_mid_freq_coords(arr.shape)
+    print(f"coords:\n{coords[:bit_len]}")
     original_high = 0.5
     while len(coords) < bit_len:
         original_high += 0.1
@@ -255,7 +258,7 @@ def embed_hamming(
     arr = cover_image.copy()
     F = np.fft.fft2(arr)
     F_mod = np.fft.fftshift(F)  # shift zero frequency to center
-    bits = np.unpackbits(np.frombuffer(encrypt_message(message, key), dtype=np.uint8))
+    bits = np.unpackbits(np.frombuffer(message.encode("utf-8"), dtype=np.uint8))
     coords = get_mid_freq_coords(arr.shape, low_frac=low_frac, high_frac=high_frac)
     
     bit_idx = 0
