@@ -2,6 +2,7 @@ import os
 from PIL import Image
 import numpy as np
 from argparse import ArgumentParser
+from .utils import base64_to_image, image_to_base64_string
 from .embed_utils import embed_message, extract_message
 
 def main():
@@ -37,8 +38,7 @@ def main():
         with open(args.input_file, 'r') as f:
             secret_message = f.read().strip()
     elif args.input_type == 'image':
-        img = Image.open(args.input_file).convert('L')
-        secret_message = np.array(img, dtype=np.float32)
+        secret_message = image_to_base64_string(args.input_file)
 
     # Load cover image as grayscale array
     img = Image.open(cover_image).convert('L')
@@ -46,7 +46,12 @@ def main():
     # Embed the secret message into the cover image
     bit_length = embed_func(cover_image=arr, message=secret_message, key=key, output_path=stego_image)
     message = extract_func(stego_path=stego_image, key=key, bit_len=bit_length)
-    print("Recovered message:\n", message)
+    if args.input_type == 'image':
+        base64_to_image(message, os.path.join(args.output_dir, 'recovered_image.png'))
+        print("Recovered image saved as 'recovered_image.png'")
+    else:
+        print("Recovered message:\n", message)
+    return
 # Example usage
 if __name__ == '__main__':
     main()
