@@ -1,34 +1,18 @@
 from PIL import Image
 import numpy as np
-from .utils import encrypt_message, decrypt_message
-def _get_mid_freq_coords(
-        shape, 
-        low_frac=0.1, 
-        high_frac=0.5
-):
-    """
-    Returns a list of mid-frequency (i, j) coordinates ordered by distance from the center,
-    skipping DC at (0,0), and selecting indices between low_frac and high_frac of the sorted list.
-    """
-    h, w = shape
-    center = np.array([h/2, w/2])
-    coords = [(i, j) for i in range(h) for j in range(w) if not (i == 0 and j == 0)]
-    coords_sorted = sorted(coords, key=lambda x: np.hypot(x[0]-center[0], x[1]-center[1]))
-    start = int(len(coords_sorted) * low_frac)
-    end = int(len(coords_sorted) * high_frac)
-    return coords_sorted[start:end]
+from .utils import encrypt_message, decrypt_message, _get_mid_freq_coords
 
 def embed_message(
-    cover_path: str,
+    cover_image: np.ndarray,
     message: str,
     key: bytes,
     delta: float = 2.0,
     output_path: str = 'stego.png'
 ):
     # Load cover image as grayscale array
-    img = Image.open(cover_path).convert('L')
-    arr = np.array(img, dtype=np.float32)
-
+    # img = Image.open(cover_path).convert('L')
+    # arr = np.array(img, dtype=np.float32)
+    arr = cover_image.copy()
     # Compute 2D FFT
     F = np.fft.fft2(arr)
     F_shifted = np.fft.fftshift(F) # shift zero frequency to center
@@ -49,6 +33,7 @@ def embed_message(
 
     # QIM embedding
     for idx, bit in enumerate(bits):
+        print(f"processing bit {idx + 1}/{bit_length}: {bit}")
         i, j = coords[idx]
         a = A[i, j]
         q = np.round((a + delta/2) / delta) * delta
@@ -60,10 +45,10 @@ def embed_message(
 
     # Reconstruct and save stego image
     F_prime = A * np.exp(1j * P)
-    stego_arr = np.real(np.fft.ifft2(F_prime))
+    stego_arr = np.real(np.fft.ifft2(np.fft.ifftshift(F_prime)))
     stego_clipped = np.clip(stego_arr, 0, 255).astype(np.uint8)
     Image.fromarray(stego_clipped).save(output_path)
-    print(f"Stego image saved to: {output_path}")
+    print(f"[QIM embedding(magnitude)] - Stego image saved to: {output_path}")
     return bit_length
 
 def extract_message(
@@ -83,9 +68,15 @@ def extract_message(
 
     # Select same mid-frequency coords
     coords = _get_mid_freq_coords(arr.shape)
-
-    if bit_len > len(coords):
-        raise ValueError("Requested more bits than available coefficients")
+    original_high = 0.5
+    while len(coords) < bit_len:
+        original_high += 0.1
+        coords = _get_mid_freq_coords(arr.shape, low_frac=0.1, high_frac=original_high)
+        if original_high > 0.9:
+            print("Not enough mid-frequency coefficients available")
+            break
+    # if bit_len > len(coords):
+    #     raise ValueError("Requested more bits than available coefficients")
 
     # Extract bits via QIM decoding
     bits = []
@@ -97,6 +88,244 @@ def extract_message(
 
     # Reconstruct ciphertext and decrypt
     byte_arr = np.packbits(bits[:bit_len])
+    ct = byte_arr.tobytes()
+    message = decrypt_message(ct, key)
+    return message
+
+# ------------------------------------------------------------------
+# Phase‑coding embed / extract
+# ------------------------------------------------------------------
+def embed_phase_coeff(cover_image: np.ndarray,
+                      message: str,
+                      key: bytes,
+                      step: float = np.pi / 8,
+                      output_path: str = 'stego.png') -> np.ndarray:
+    """
+    Embed 1 bit / coefficient by snapping its phase to one of two quantisation bins
+    of width ``step`` radians (default π/8).
+
+    Only the phase is modified → amplitude is preserved → very high visual fidelity.
+    """
+    arr = cover_image.copy()
+    F = np.fft.fft2(arr)
+    F_mod = np.fft.fftshift(F)  # shift zero frequency to center
+    bits = np.unpackbits(np.frombuffer(encrypt_message(message, key), dtype=np.uint8))
+    coords = _get_mid_freq_coords(arr.shape)
+    if len(bits) > len(coords):
+        raise ValueError("Message too long for available frequency coefficients")
+    for b, (i, j) in zip(bits, coords):
+        amp = np.abs(F_mod[i, j])
+        phase = np.angle(F_mod[i, j])
+        # wrap to [0, 2π)
+        phase = (phase + 2 * np.pi) % (2 * np.pi)
+        # quantisation
+        base = np.floor(phase / step) * step
+        new_phase = base + (step / 2 if b else 0.0)
+        # keep within [0, 2π)
+        new_phase = new_phase % (2 * np.pi)
+        F_mod[i, j] = amp * np.exp(1j * new_phase)
+    
+    stego_arr = np.real(np.fft.ifft2(np.fft.ifftshift(F_mod)))
+    stego_clipped = np.clip(stego_arr, 0, 255).astype(np.uint8)
+    Image.fromarray(stego_clipped).save(output_path)
+    print(f"[QIM embedding(phase)] - Stego image saved to: {output_path}")
+    return len(bits)
+
+
+def extract_phase_coeff(stego_path: str,
+                        key: bytes,
+                        bit_len: int,
+                        step: float = np.pi / 8) -> np.ndarray:
+    """
+    Reverse of ``embed_phase_coeff``.
+    """
+    img = Image.open(stego_path).convert('L')
+    arr = np.array(img, dtype=np.float32)
+    F = np.fft.fft2(arr)
+    F = np.fft.fftshift(F)  # shift zero frequency to center
+    coords = _get_mid_freq_coords(arr.shape)
+    original_high = 0.5
+    while len(coords) < bit_len:
+        original_high += 0.1
+        coords = _get_mid_freq_coords(arr.shape, low_frac=0.1, high_frac=original_high)
+        if original_high > 0.9:
+            print("Not enough mid-frequency coefficients available")
+            break
+    # if bit_len > len(coords):
+    #     raise ValueError("Requested more bits than available coefficients")
+    bits = []
+    for (i, j) in coords[:bit_len]:
+        phase = (np.angle(F[i, j]) + 2 * np.pi) % (2 * np.pi)
+        bits.append(1 if (phase % step) >= (step / 2) else 0)
+    # Convert bits to bytes
+    byte_arr = np.packbits(bits[:bit_len])
+    ct = byte_arr.tobytes()
+    message = decrypt_message(ct, key)
+
+    return message
+
+
+# ------------------------------------------------------------------
+# Parity / matrix‑encoding (Hamming‑(7,4)) embed / extract
+# ------------------------------------------------------------------
+def _hamming_syndrome(bits7: np.ndarray) -> np.ndarray:
+    """Return the 3‑bit syndrome for (7,4) Hamming parity matrix."""
+    H = np.array([[1, 0, 1, 0, 1, 0, 1],
+                  [0, 1, 1, 0, 0, 1, 1],
+                  [0, 0, 0, 1, 1, 1, 1]], dtype=int)
+    return (H @ bits7) % 2
+
+
+def embed_hamming(cover_image: np.ndarray,
+                  message: str,
+                  key: bytes,
+                  delta: float = 1.0,
+                  output_path: str = 'stego.png') -> np.ndarray:
+    """
+    Embed **4 payload bits into every 7 coefficients** using Hamming‑(7,4).
+    Matrix encoding flips at most *one* coefficient LSB in each 7‑tuple,
+    ⇒ average distortion ↓ 3.5× vs naive LSB.
+
+    ``delta`` controls the minimal amplitude nudge used to flip an LSB.
+    """
+    arr = cover_image.copy()
+    F = np.fft.fft2(arr)
+    F_mod = np.fft.fftshift(F)  # shift zero frequency to center
+    bits = np.unpackbits(np.frombuffer(encrypt_message(message, key), dtype=np.uint8))
+    coords = _get_mid_freq_coords(arr.shape)
+    bit_idx = 0
+    for blk_start in range(0, len(coords), 7):
+        blk = coords[blk_start: blk_start + 7]
+        if bit_idx >= len(bits):
+            break
+        payload = bits[bit_idx: bit_idx + 4]
+        bit_idx += 4
+
+        # current LSBs of amplitude (could use magnitude mod 2*delta instead)
+        amp = np.abs([F_mod[i, j] for i, j in blk])
+        lsb = np.round(amp / delta) % 2
+
+        # desired codeword: append parity to payload
+        codeword = np.zeros(7, dtype=int)
+        codeword[:4] = payload
+        # compute parity bits to satisfy Hamming equation
+        # simple generator for (7,4): parity bits at positions 3,5,6 (0‑index)
+        codeword[4] = (codeword[0] ^ codeword[1] ^ codeword[2])
+        codeword[5] = (codeword[0] ^ codeword[1] ^ codeword[3])
+        codeword[6] = (codeword[0] ^ codeword[2] ^ codeword[3])
+
+        # difference between current and desired ⇒ syndrome
+        syndrome = _hamming_syndrome(lsb.astype(int) ^ codeword)
+        err_pos = int("".join(map(str, syndrome)), 2) - 1  # 0‑based
+        if err_pos >= 0:
+            # flip one coefficient by ±delta to match
+            i, j = blk[err_pos]
+            F_mod[i, j] += delta if (np.random.rand() > 0.5) else -delta
+    # Reconstruct and save stego image
+    stego_arr = np.real(np.fft.ifft2(np.fft.ifftshift(F_mod)))
+    stego_clipped = np.clip(stego_arr, 0, 255).astype(np.uint8)
+    Image.fromarray(stego_clipped).save(output_path)
+    print(f"[Hamming embedding] - Stego image saved to: {output_path}")
+    return len(bits)
+
+
+def extract_hamming(stego_path: str,
+                    key: bytes,
+                    bit_len: int,
+                    delta: float = 1.0) -> np.ndarray:
+    """
+    Extract payload bits from Hamming‑(7,4) encoded coefficients.
+    """
+    img = Image.open(stego_path).convert('L')
+    arr = np.array(img, dtype=np.float32)
+    F = np.fft.fft2(arr)
+    F = np.fft.fftshift(F)  # shift zero frequency to center
+    coords = _get_mid_freq_coords(arr.shape)
+    original_high = 0.5
+    while len(coords) < bit_len:
+        original_high += 0.1
+        coords = _get_mid_freq_coords(arr.shape, low_frac=0.1, high_frac=original_high)
+        if original_high > 0.9:
+            print("Not enough mid-frequency coefficients available")
+            break
+    bits_out = []
+    for blk_start in range(0, min(len(coords), (bit_len // 4 + 1) * 7), 7):
+        blk = coords[blk_start: blk_start + 7]
+        amp = np.abs([F[i, j] for i, j in blk])
+        lsb = (np.round(amp / delta) % 2).astype(int)
+        # The first 4 bits of the codeword are the payload
+        bits_out.extend(lsb[:4])
+        if len(bits_out) >= bit_len:
+            break
+    # Convert bits to bytes
+    bits_out = np.array(bits_out, dtype=np.uint8)
+    byte_arr = np.packbits(bits_out[:bit_len])
+    ct = byte_arr.tobytes()
+    message = decrypt_message(ct, key)
+    return message
+
+
+# ------------------------------------------------------------------
+# Spread‑spectrum embed / extract (binary PN sequence)
+# ------------------------------------------------------------------
+def embed_spread_spectrum(cover_image: np.ndarray,
+                          message: str,
+                          key: int,
+                          alpha: float = 0.05,
+                          output_path: str = 'stego.png') -> np.ndarray:
+    """
+    Adds a tiny pseudo‑random ±alpha * mean(|F|) amplitude to *all* chosen coefficients.
+    Each payload bit is spread across the full coords set ⇒ high robustness.
+
+    Only one bit is embedded per call; repeat for the whole message.
+    """
+    arr = cover_image.copy()
+    F = np.fft.fft2(arr)
+    F_mod = np.fft.fftshift(F)  # shift zero frequency to center
+    bits = np.unpackbits(np.frombuffer(encrypt_message(message, key), dtype=np.uint8))
+    coords = _get_mid_freq_coords(arr.shape)
+    if len(bits) > len(coords):
+        raise ValueError("Message too long for available frequency coefficients")
+    rng = np.random.default_rng(key)
+    pn = rng.choice([-1, 1], size=len(coords))
+    mean_amp = np.mean(np.abs([F[i, j] for i, j in coords]))
+
+    for b in bits:
+        shift = alpha * mean_amp * (1 if b else -1)
+        for n, (i, j) in enumerate(coords):
+            F_mod[i, j] += shift * pn[n]
+    # Reconstruct and save stego image
+    stego_arr = np.real(np.fft.ifft2(np.fft.ifftshift(F_mod)))
+    stego_clipped = np.clip(stego_arr, 0, 255).astype(np.uint8)
+    Image.fromarray(stego_clipped).save(output_path)
+    print(f"[Spread-spectrum embedding] - Stego image saved to: {output_path}")
+    return len(bits)
+
+
+def extract_spread_spectrum(stego_path: str,
+                            coords: list[tuple[int, int]],
+                            bit_len: int,
+                            key: int,
+                            alpha: float = 0.05) -> np.ndarray:
+    """
+    Demodulate spread‑spectrum bit stream via correlation with the PN sequence.
+    """
+    img = Image.open(stego_path).convert('L')
+    arr = np.array(img, dtype=np.float32)
+    F = np.fft.fft2(arr)
+    F = np.fft.fftshift(F)  # shift zero frequency to center
+    coords = _get_mid_freq_coords(arr.shape)
+    rng = np.random.default_rng(key)
+    pn = rng.choice([-1, 1], size=len(coords))
+    bits_out = []
+    for _ in range(bit_len):
+        corr = np.sum([
+            pn[n] * np.abs(F[i, j]) for n, (i, j) in enumerate(coords)
+        ])
+        bits_out.append(1 if corr >= 0 else 0)
+    # Convert bits to bytes
+    bits_out = np.array(bits_out, dtype=np.uint8)
+    byte_arr = np.packbits(bits_out[:bit_len])
     ct = byte_arr.tobytes()
     message = decrypt_message(ct, key)
     return message
