@@ -8,6 +8,7 @@ def encrypt_message(message: str, key: bytes) -> bytes:
     """
     cipher = AES.new(key, AES.MODE_CBC)
     ct = cipher.encrypt(pad(message.encode('utf-8'), AES.block_size))
+    print(f"The length of the ciphertext is: {len(ct)}")
     return bytes(cipher.iv) + ct
 
 def decrypt_message(ct_all: bytes, key: bytes) -> str:
@@ -16,6 +17,7 @@ def decrypt_message(ct_all: bytes, key: bytes) -> str:
     """
     iv = ct_all[:AES.block_size]
     ct = ct_all[AES.block_size:]
+    print(f"The length of the ciphertext is: {len(ct)}")
     cipher = AES.new(key, AES.MODE_CBC, iv)
     return unpad(cipher.decrypt(ct), AES.block_size).decode('utf-8')
 

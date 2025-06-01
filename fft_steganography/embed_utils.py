@@ -1,6 +1,7 @@
 from PIL import Image
+from tqdm import tqdm
 import numpy as np
-from .utils import encrypt_message, decrypt_message, get_mid_freq_coords
+from utils import encrypt_message, decrypt_message, get_mid_freq_coords
 
 def embed_message(
     cover_image: np.ndarray,
@@ -34,19 +35,18 @@ def embed_message(
     # Encrypt message and get bit array
     ct = encrypt_message(message, key)
     bits = np.unpackbits(np.frombuffer(ct, dtype=np.uint8))
+    print(bits)
     # Get bit length for returning
     bit_length = len(bits)
 
     # Select mid-frequency coords
     coords = get_mid_freq_coords(arr.shape,low_frac=low_frac, high_frac=high_frac)
-
+    # print(f"low_frac: {low_frac}, high_frac: {high_frac}")
     if len(bits) > len(coords):
-        raise ValueError("Message too long for available frequency coefficients, \
-                         try increase the `high_frac` parameter or reduce the message size")
+        raise ValueError(f"Message too long for available frequency coefficients, difference {len(bits) - len(coords)}, try increase the `high_frac` parameter or reduce the message size")
 
     # QIM embedding
-    for idx, bit in enumerate(bits):
-        print(f"processing bit {idx + 1}/{bit_length}: {bit}")
+    for idx, bit in tqdm(enumerate(bits), desc="Embedding bits"):
         i, j = coords[idx]
         a = A[i, j]
         q = np.round((a + delta/2) / delta) * delta
@@ -61,7 +61,7 @@ def embed_message(
     stego_arr = np.real(np.fft.ifft2(np.fft.ifftshift(F_prime)))
     stego_clipped = np.clip(stego_arr, 0, 255).astype(np.uint8)
     Image.fromarray(stego_clipped).save(output_path)
-    print(f"[QIM embedding(magnitude)] - Stego image saved to: {output_path}")
+    print(f"[QIM embedding(magnitude)] - Stego image saved to: {output_path}, length for bits array is {bit_length}")
     return bit_length
 
 def extract_message(
@@ -74,6 +74,15 @@ def extract_message(
         delta = 2.0
     else:
         delta = kwargs['delta']
+    if 'low_frac' in kwargs:
+        low_frac = kwargs['low_frac']
+    else:
+        low_frac = 0.1
+    if 'high_frac' in kwargs:
+        high_frac = kwargs['high_frac']
+    else:
+        high_frac = 0.5
+    print(f"Received bit length: {bit_len}, delta: {delta}")
     # Load stego image
     img = Image.open(stego_path).convert('L')
     arr = np.array(img, dtype=np.float32)
@@ -84,14 +93,16 @@ def extract_message(
     A = np.abs(F_shifted)
 
     # Select same mid-frequency coords
-    coords = get_mid_freq_coords(arr.shape)
-    original_high = 0.5
+    coords = get_mid_freq_coords(arr.shape, low_frac=low_frac, high_frac=high_frac)
+    original_high = high_frac
+    # print(f"Number of mid-frequency coefficients available: {len(coords)}")
     while len(coords) < bit_len:
         original_high += 0.1
-        coords = get_mid_freq_coords(arr.shape, low_frac=0.1, high_frac=original_high)
+        coords = get_mid_freq_coords(arr.shape, low_frac=low_frac, high_frac=original_high)
         if original_high > 0.9:
             print("Not enough mid-frequency coefficients available")
             break
+    # print(f"low_frac: {low_frac}, high_frac: {original_high}")
     # if bit_len > len(coords):
     #     raise ValueError("Requested more bits than available coefficients")
 
@@ -105,6 +116,7 @@ def extract_message(
 
     # Reconstruct ciphertext and decrypt
     byte_arr = np.packbits(bits[:bit_len])
+    print(byte_arr)
     ct = byte_arr.tobytes()
     message = decrypt_message(ct, key)
     return message

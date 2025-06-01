@@ -2,8 +2,8 @@ import os
 from PIL import Image
 import numpy as np
 from argparse import ArgumentParser
-from .utils import base64_to_image, image_to_base64_string
-from .embed_utils import embed_message, extract_message
+from utils import base64_to_image, image_to_base64_string
+from embed_utils import embed_message, extract_message
 
 def main():
     parser = ArgumentParser(description="FFT Steganography Example")
@@ -13,6 +13,8 @@ def main():
     parser.add_argument('--method', type=str, default='magnitude', choices=['magnitude', 'phase', 'hamming'], help='Methods to use for embedding (e.g., fft)')
     parser.add_argument('--input_type', type=str, default='text', choices=['image', 'text'], help='Type of input data (e.g., image, text)')
     parser.add_argument('--input_file', type=str, default='input.txt', help='Path to input file for embedding')
+    parser.add_argument('--low', type=float, default=0.1, help='Lower frequency fraction for embedding (optional)')
+    parser.add_argument('--high', type=float, default=0.5, help='Upper frequency fraction for embedding (optional)')
     args = parser.parse_args()
     key = os.urandom(16)  # Generate a random 128-bit AES key
     cover_image = args.cover
@@ -25,14 +27,14 @@ def main():
     if args.input_type not in ['image', 'text']:
         raise ValueError("Invalid input type. Choose from: image, text.")
     if args.method ==  'magnitude':
-        from .embed_utils import embed_message as embed_func
-        from .embed_utils import extract_message as extract_func
+        from embed_utils import embed_message as embed_func
+        from embed_utils import extract_message as extract_func
     elif args.method == 'phase':
-        from .embed_utils import embed_phase_coeff as embed_func
-        from .embed_utils import extract_phase_coeff as extract_func
+        from embed_utils import embed_phase_coeff as embed_func
+        from embed_utils import extract_phase_coeff as extract_func
     elif args.method == 'hamming':
-        from .embed_utils import embed_hamming as embed_func
-        from .embed_utils import extract_hamming as extract_func
+        from embed_utils import embed_hamming as embed_func
+        from embed_utils import extract_hamming as extract_func
     # check input_type and read secret message
     if args.input_type == 'text':
         with open(args.input_file, 'r') as f:
@@ -44,7 +46,7 @@ def main():
     img = Image.open(cover_image).convert('L')
     arr = np.array(img, dtype=np.float32)
     # Embed the secret message into the cover image
-    bit_length = embed_func(cover_image=arr, message=secret_message, key=key, output_path=stego_image)
+    bit_length = embed_func(cover_image=arr, message=secret_message, key=key, output_path=stego_image, low_frac=args.low, high_frac=args.high)
     message = extract_func(stego_path=stego_image, key=key, bit_len=bit_length)
     if args.input_type == 'image':
         base64_to_image(message, os.path.join(args.output_dir, 'recovered_image.png'))
