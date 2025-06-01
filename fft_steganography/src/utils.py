@@ -1,3 +1,4 @@
+import numpy as np
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 
@@ -18,7 +19,7 @@ def decrypt_message(ct_all: bytes, key: bytes) -> str:
     cipher = AES.new(key, AES.MODE_CBC, iv)
     return unpad(cipher.decrypt(ct), AES.block_size).decode('utf-8')
 
-def _get_mid_freq_coords(
+def get_mid_freq_coords(
         shape, 
         low_frac=0.1, 
         high_frac=0.5
@@ -34,3 +35,39 @@ def _get_mid_freq_coords(
     start = int(len(coords_sorted) * low_frac)
     end = int(len(coords_sorted) * high_frac)
     return coords_sorted[start:end]
+
+import base64
+
+def image_to_base64_string(image_path: str) -> str:
+    """
+    Converts an image file to a base64-encoded string.
+    Args:
+        image_path (str): Path to the image file.
+    Returns:
+        str: Base64-encoded string of the image.
+    """
+    with open(image_path, 'rb') as f:
+        image_bytes = f.read()
+    base64_str = base64.b64encode(image_bytes).decode('utf-8')
+    return base64_str
+
+import base64
+from PIL import Image
+import io
+
+def base64_to_image(base64_str: str, output_path: str) -> Image.Image:
+    """
+    Converts a base64-encoded string back to an image file and saves it.
+    Args:
+        base64_str (str): Base64-encoded string of the image.
+        output_path (str): Path where the image will be saved.
+    Returns:
+        Image.Image: The PIL Image object created from the base64 string.
+    """
+    img_bytes = base64.b64decode(base64_str)
+
+    img = Image.open(io.BytesIO(img_bytes))
+
+    img.save(output_path)
+
+    return img

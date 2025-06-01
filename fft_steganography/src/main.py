@@ -1,42 +1,53 @@
 import os
 from PIL import Image
 import numpy as np
-from .utils import encrypt_message, decrypt_message, _get_mid_freq_coords
+from argparse import ArgumentParser
 from .embed_utils import embed_message, extract_message
 
-
-
-
-
-# Example usage
-if __name__ == '__main__':
-    key = os.urandom(16)  # 128-bit AES key
-    cover = 'cover.png'
-    stego = 'stego.png'
-    secret = 'Hello, FFT Stego!'
+def main():
+    parser = ArgumentParser(description="FFT Steganography Example")
+    parser.add_argument('--cover', type=str, default='cover.png', help='Path to cover image')
+    parser.add_argument('--stego', type=str, default='stego.png', help='Name for output stego image')
+    parser.add_argument('--output_dir', type=str, default='.', help='Directory to save output files')
+    parser.add_argument('--method', type=str, default='magnitude', choices=['magnitude', 'phase', 'hamming'], help='Methods to use for embedding (e.g., fft)')
+    parser.add_argument('--input_type', type=str, default='text', choices=['image', 'text'], help='Type of input data (e.g., image, text)')
+    parser.add_argument('--input_file', type=str, default='input.txt', help='Path to input file for embedding')
+    args = parser.parse_args()
+    key = os.urandom(16)  # Generate a random 128-bit AES key
+    cover_image = args.cover
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+    stego_image = os.path.join(args.output_dir, args.stego)
+    # check embedding method
+    if args.method not in ['magnitude', 'phase', 'hamming']:
+        raise ValueError("Invalid embedding method. Choose from: magnitude, phase, hamming.")
+    if args.input_type not in ['image', 'text']:
+        raise ValueError("Invalid input type. Choose from: image, text.")
+    if args.method ==  'magnitude':
+        from .embed_utils import embed_message as embed_func
+        from .embed_utils import extract_message as extract_func
+    elif args.method == 'phase':
+        from .embed_utils import embed_phase_coeff as embed_func
+        from .embed_utils import extract_phase_coeff as extract_func
+    elif args.method == 'hamming':
+        from .embed_utils import embed_hamming as embed_func
+        from .embed_utils import extract_hamming as extract_func
+    # check input_type and read secret message
+    if args.input_type == 'text':
+        with open(args.input_file, 'r') as f:
+            secret_message = f.read().strip()
+    elif args.input_type == 'image':
+        img = Image.open(args.input_file).convert('L')
+        secret_message = np.array(img, dtype=np.float32)
 
     # Load cover image as grayscale array
-    img = Image.open(cover_path).convert('L')
+    img = Image.open(cover_image).convert('L')
     arr = np.array(img, dtype=np.float32)
+    # Embed the secret message into the cover image
+    bit_length = embed_func(cover_image=arr, message=secret_message, key=key, output_path=stego_image)
+    message = extract_func(stego_path=stego_image, key=key, bit_len=bit_length)
+    print("Recovered message:\n", message)
+# Example usage
+if __name__ == '__main__':
+    main()
 
-    # Compute 2D FFT
-    F = np.fft.fft2(arr)
-    F_shifted = np.fft.fftshift(F) # shift zero frequency to center
-    A = np.abs(F_shifted) # Magnitude spectrum
-    P = np.angle(F_shifted) # Phase spectrum
-
-    # Encrypt message and get bit array
-    ct = encrypt_message(message, key)
-    bits = np.unpackbits(np.frombuffer(ct, dtype=np.uint8))
-    # Get bit length for returning
-    bit_length = len(bits)
-
-    # Select mid-frequency coords
-    coords = _get_mid_freq_coords(arr.shape)
-
-    # Embed
-    bit_length = embed_message(cover_path=cover, message=secret, key=key, delta=2.0, output_path=stego)
-
-    # Extract
-    recovered = extract_message(stego_path=stego, key=key, bit_len=bit_length, delta=2.0)
-    print("Recovered message:", recovered)
