@@ -46,14 +46,13 @@ def main():
     img = Image.open(cover_image).convert('L')
     arr = np.array(img, dtype=np.float32)
     # Embed the secret message into the cover image
-    bit_length = embed_func(cover_image=arr, message=secret_message, key=key, output_path=stego_image, low_frac=args.low, high_frac=args.high)
-    message = extract_func(stego_path=stego_image, key=key, bit_len=bit_length)
-    if args.input_type == 'image':
-        base64_to_image(message, os.path.join(args.output_dir, 'recovered_image.png'))
-        print("Recovered image saved as 'recovered_image.png'")
-    else:
-        print("Recovered message:\n", message)
-    return
+    _bit_length = embed_func(cover_image=arr, message=secret_message, key=key, output_path=stego_image, low_frac=args.low, high_frac=args.high)
+    # if args.input_type == 'image':
+    #     base64_to_image(message, os.path.join(args.output_dir, 'recovered_image.png'))
+    #     print("Recovered image saved as 'recovered_image.png'")
+    # else:
+    #     print("Recovered message:\n", message)
+    # return
 # Example usage
 if __name__ == '__main__':
     main()

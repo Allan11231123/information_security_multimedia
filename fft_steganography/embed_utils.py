@@ -41,7 +41,7 @@ def embed_message(
 
     # Select mid-frequency coords
     coords = get_mid_freq_coords(arr.shape,low_frac=low_frac, high_frac=high_frac)
-    print(f"coords:\n{coords[:bit_length]}")
+    print(f"length of coords: {len(coords)}")
     # print(f"low_frac: {low_frac}, high_frac: {high_frac}")
     if len(bits) > len(coords):
         raise ValueError(f"Message too long for available frequency coefficients, difference {len(bits) - len(coords)}, try increase the `high_frac` parameter or reduce the message size")

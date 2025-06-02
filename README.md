@@ -9,12 +9,16 @@
     - Using the same key and argument to extract the original text.
 - [This survey](https://magrf.grf.hr/wp-content/uploads/2022/07/LOW-FREQUENCY-DATA-EMBEDDING-FOR-DFT-BASED-IMAGE-STEGANOGRAPHY-1.pdf) shows that the medium range of frequency has better robustness on detection rate on embeddings.
 
-## FFT + QIM (on phase)
+## FFT + Hamming (7,4) Matrix embedding
+- Intro:
+    - Hamming(7,4) is a classical linear grouping correcting code, it maps 4-bit data $d = (d_1,d_2,d_3,d_4)$ to a 7-bit code $c = (c_1,c_2,...,c_7)$. The 4 bits in the front is the `information bits`, while the last 3 bits stand for `parity bits`, which used to detect error and correct for at most 1 bit mismatch.
+    - After embedding, the receiver can use parity-check matrix to fast locate at the location where the bit is reversed and correct it to produce the original code.
+
+## FFT + QIM (on phase) (Deprecated: texture will be modified after the embedding)
 - steps similar to the original one
 - Difference: Target on the phase field to reduce the impact to the imaging for the input cover image.
     - Effect: Since human eyes more focus on the amplitude of the frequency, changing the phase field can reduce the difference between cover and stego image.
 
-## 
 
 ## SSIS (Spread-Spectrum) (Deprecated: need mutiple PN sequence to embed multiple bits)
 - steps:
